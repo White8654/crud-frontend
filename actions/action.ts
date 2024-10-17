@@ -21,7 +21,7 @@ export interface TableRenameRequest {
 }
 
 // actions.ts
-const apiUrl = "https://crud-backend-ten-kappa.vercel.app/"; 
+const apiUrl = "https://crud-backend-ten-kappa.vercel.app"; 
 
 // Generic API request handler
 const apiRequest = async <T>(
