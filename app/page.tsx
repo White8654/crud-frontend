@@ -1,229 +1,507 @@
 "use client";
-
-import { addOrg, getOrgs, updateOrg, deleteOrg } from "@/actions/action";
+import React, { useState, useEffect } from "react";
+import {
+  addItem,
+  getItems,
+  updateItem,
+  deleteItem,
+  listTables,
+  listSchemas,
+  registerSchema,
+  getSchema,
+  updateHead,
+  validateItemAgainstSchema,
+} from "@/actions/action";
 import Popup from "@/components/Popup";
-import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Edit, Trash2, Plus, Search, Database, ChevronLeft, ChevronRight } from 'lucide-react';
+import { format } from 'date-fns';
+import { Anybody } from "next/font/google";
 
-interface Org {
+interface TableData {
   id: number;
-  orgName: string;
-  Type: string;
-  Status: string;
-  Active: boolean;
-  LastUpdated: string;
+  lastUpdated?: string;
+  [key: string]: any;
 }
 
-export default function Home() {
+type FieldDef = {
+  type: 'number' | 'boolean' | 'string'; // You can add more types as needed
+};
+
+export default function DynamicPage() {
+  const [activeTab, setActiveTab] = useState<string>("");
+  const [tables, setTables] = useState<string[]>([]);
+  const [schemas, setSchemas] = useState<{ [key: string]: any }>({});
   const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [tableData, setTableData] = useState<Org[]>([]);
+  const [isNewTablePopupOpen, setIsNewTablePopupOpen] = useState(false);
+  const [tableData, setTableData] = useState<TableData[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filteredData, setFilteredData] = useState<Org[]>([]);
+  const [filteredData, setFilteredData] = useState<TableData[]>([]);
   const [page, setPage] = useState(1);
-  const itemsPerPage = 5;
-  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [newTableName, setNewTableName] = useState("");
+  const [newTableAlias, setNewTableAlias] = useState("");
+  const [newTableFields, setNewTableFields] = useState<{ name: string, type: string }[]>([]);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [newFieldName, setNewFieldName] = useState<string>("");
+  const itemsPerPage = 10;
 
-  const openPopup = () => setIsPopupOpen(true);
-  const closePopup = () => setIsPopupOpen(false);
-
-  // Load organizations from API
-  const loadTableData = async () => {
-    try {
-      const orgs: Org[] = await getOrgs();
-      setTableData(orgs);
-      setFilteredData(orgs);
-    } catch (error) {
-      console.error("Error loading organizations:", error);
-    }
-  };
-
-  // Handle adding a new organization
-  const handleOrgSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleCreateNewTable = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const target = event.target as typeof event.target & {
-      orgName: { value: string };
-      type: { value: string };
-      status: { value: string };
-      active: { checked: boolean };
-    };
-
-    const newOrg: Org = {
-      id: Math.floor(Math.random() * 10000), // Temporary ID
-      orgName: target.orgName.value,
-      Type: target.type.value,
-      Status: target.status.value,
-      Active: target.active.checked,
-      LastUpdated: new Date().toISOString(),
-    };
-
     try {
-      await addOrg(newOrg.orgName, newOrg.Type, newOrg.Status, newOrg.Active);
-      closePopup();
-      loadTableData(); // Reload table data after adding the new organization
-    } catch (error) {
-      console.error("Error submitting organization:", error);
+      const newSchema: { tableName: string, alias: string, fields: any } = {
+        tableName: newTableName,
+        alias: newTableAlias,
+        fields: {},
+      };
+
+      newTableFields.forEach(field => {
+        newSchema.fields[field.name] = { type: field.type, required: true };
+      });
+
+      await registerSchema(newSchema);
+
+      const updatedTables = await listTables();
+      setTables(updatedTables);
+
+      const newSchemas = { ...schemas, [newTableName]: newSchema };
+      setSchemas(newSchemas);
+      setActiveTab(newTableName);
+
+      setIsNewTablePopupOpen(false);
+      setNewTableName("");
+      setNewTableAlias("");
+      setNewTableFields([]);
+    } catch (err) {
+      console.error("Error creating new table:", err);
+      alert(err instanceof Error ? err.message : 'Failed to create new table');
     }
   };
 
-  // Handle deleting an organization
-  const handleDelete = async (id: number) => {
-    try {
-      await deleteOrg(id);
-      loadTableData(); // Reload after deletion
-    } catch (error) {
-      console.error("Error deleting organization:", error);
+  const handleEditFieldName = async (oldFieldName: string) => {
+    if (newFieldName.length < 2) {
+      setEditingField(null);
+      return;
+    }
+
+    if (newFieldName.trim() !== "") {
+      try {
+        await updateHead(activeTab, oldFieldName, newFieldName);
+        const schema = await getSchema(activeTab);
+        setSchemas({ ...schemas, [activeTab]: schema });
+        setEditingField(null);
+        window.location.reload();
+      } catch (err) {
+        console.error("Error renaming field:", err);
+        alert(err instanceof Error ? err.message : 'Failed to rename field');
+      }
     }
   };
 
-  // Handle updating an organization (triggering the popup to edit can be added)
-  const handleUpdate = async (id: number, updatedOrg: Partial<Org>) => {
-    try {
-      await updateOrg(id, updatedOrg.orgName || "", updatedOrg.Type || "", updatedOrg.Status || "", updatedOrg.Active || false);
-      loadTableData();
-    } catch (error) {
-      console.error("Error updating organization:", error);
-    }
+  const addNewField = () => {
+    setNewTableFields([...newTableFields, { name: "", type: "string" }]);
+  };
+
+  const updateField = (index: number, field: string, value: string) => {
+    const updatedFields = [...newTableFields];
+    updatedFields[index] = { ...updatedFields[index], [field]: value };
+    setNewTableFields(updatedFields);
   };
 
   useEffect(() => {
-    loadTableData();
+    const initializeTables = async () => {
+      try {
+        setLoading(true);
+        const tablesList = await listTables();
+        setTables(tablesList);
+
+        const schemaPromises = tablesList.map(async (table) => {
+          const schema = await getSchema(table);
+          return [table, schema] as [string, any];
+        });
+
+        const schemasData = Object.fromEntries(await Promise.all(schemaPromises));
+        setSchemas(schemasData);
+
+        if (tablesList.length > 0 && !activeTab) {
+          setActiveTab(tablesList[0]);
+        }
+
+        setError(null);
+      } catch (err) {
+        setError("Failed to load tables and schemas");
+        console.error("Initialization error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeTables();
   }, []);
 
   useEffect(() => {
-    const filtered = tableData.filter((org) =>
-      org.orgName.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    setFilteredData(filtered);
+    const loadTableData = async () => {
+      if (!activeTab) return;
+
+      try {
+        setLoading(true);
+        const data = await getItems(activeTab);
+        const processedData = data.map((item: TableData, index: number) => ({
+          ...item,
+          id: index + 1,
+          LastUpdated: item.LastUpdated ? format(new Date(item.LastUpdated), 'MMM dd, yyyy HH:mm:ss') : ''
+        }));
+        setTableData(processedData);
+        setFilteredData(processedData);
+        setError(null);
+      } catch (err) {
+        setError(`Failed to load ${activeTab} data`);
+        console.error(`Error loading ${activeTab}:`, err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadTableData();
+  }, [activeTab]);
+
+  useEffect(() => {
+    const filterData = async () => {
+      setSearchLoading(true);
+      const filtered = tableData.filter((item) =>
+        Object.values(item).some(
+          (val) =>
+            val != null &&
+            val.toString().toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      );
+      setFilteredData(filtered);
+      setPage(1);
+      setSearchLoading(false);
+    };
+
+    const debounce = setTimeout(() => {
+      filterData();
+    }, 300);
+
+    return () => clearTimeout(debounce);
   }, [searchTerm, tableData]);
 
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const newItem: { [key: string]: any } = {};
+  
+    const schema = schemas[activeTab];
+  
+    // Type assertion for schema.fields
+    Object.entries(schema.fields as { [key: string]: FieldDef }).forEach(([field, fieldDef]) => {
+      const value = formData.get(field);
+      switch (fieldDef.type) {
+        case 'number':
+          newItem[field] = value ? Number(value) : null;
+          break;
+        case 'boolean':
+          newItem[field] = value === 'true';
+          break;
+        default:
+          newItem[field] = value;
+      }
+    });
+
+    try {
+      await validateItemAgainstSchema(activeTab, newItem);
+      await addItem(activeTab, newItem);
+      const updatedData = await getItems(activeTab);
+      const processedData = updatedData.map((item: TableData, index: number) => ({
+        ...item,
+        id: index + 1,
+        LastUpdated: item.LastUpdated ? format(new Date(item.LastUpdated), 'MMM dd, yyyy HH:mm:ss') : ''
+      }));
+      setTableData(processedData);
+      setIsPopupOpen(false);
+    } catch (err) {
+      console.error(`Error submitting ${activeTab}:`, err);
+      alert(err instanceof Error ? err.message : 'Failed to add item');
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this item?')) return;
+
+    try {
+      await deleteItem(activeTab, id);
+      const updatedData = await getItems(activeTab);
+      const processedData = updatedData.map((item: TableData, index: number) => ({
+        ...item,
+        id: index + 1,
+        LastUpdated: item.LastUpdated ? format(new Date(item.LastUpdated), 'MMM dd, yyyy HH:mm:ss') : ''
+      }));
+      setTableData(processedData);
+    } catch (err) {
+      console.error(`Error deleting ${activeTab}:`, err);
+      alert('Failed to delete item');
+    }
+  };
+
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const currentData = filteredData.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+  const currentData = filteredData.slice(
+    (page - 1) * itemsPerPage,
+    page * itemsPerPage
+  );
+
+  const activeSchema = schemas[activeTab];
+  const fields = activeSchema ? Object.keys(activeSchema.fields) : [];
 
   return (
-    <main className="bg-white w-4/5 mx-auto mt-20 p-5 rounded-lg shadow-lg">
-      <div className="flex justify-between items-center mb-3">
-        <div className="text-3xl text-black">Organizations</div>
-        <button onClick={openPopup} className="bg-blue-500 text-white px-5 py-2 rounded-xl">
-          Add Organization
-        </button>
+    <main className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 w-full p-8">
+      {/* Glass Container */}
+      <div className="backdrop-blur-md bg-black/30 rounded-3xl border border-white/10 shadow-2xl p-8 max-w-[95%] mx-auto mt-10">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-8">
+          {/* Table Tabs */}
+          <div className="flex space-x-2 overflow-x-auto scrollbar-hide pb-2 w-full md:w-auto">
+            <div className="flex gap-3 p-1 bg-black/20 rounded-2xl backdrop-blur-sm">
+              {tables.map((table) => (
+                <button
+                  key={table}
+                  onClick={() => setActiveTab(table)}
+                  className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
+                    activeTab === table
+                      ? "bg-blue-500 text-white shadow-lg shadow-blue-500/50 scale-105 transform"
+                      : "text-gray-300 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  <Database className="w-4 h-4 inline-block mr-2" />
+                  {table}
+                </button>
+              ))}
+              <button
+                onClick={() => setIsNewTablePopupOpen(true)}
+                className="px-6 py-3 rounded-xl bg-emerald-500 text-white font-medium hover:bg-emerald-600 transition-all duration-300 shadow-lg shadow-emerald-500/30 flex items-center"
+              >
+                <Plus className="w-4 h-4 mr-2" /> New Table
+              </button>
+            </div>
+          </div>
+
+          {/* Add New Item Button */}
+          <button
+            onClick={() => setIsPopupOpen(true)}
+            className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-all duration-300 shadow-lg shadow-blue-500/30 flex items-center group"
+          >
+            <Plus className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform duration-300" />
+            Add New Item
+          </button>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative mb-8">
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full px-6 py-4 bg-black/20 border border-white/10 rounded-2xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-300"
+          />
+          <Search className="absolute right-6 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+        </div>
+
+        {/* Loading States */}
+        {(loading || searchLoading) && (
+          <div className="flex justify-center items-center my-8">
+            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {/* Table Section */}
+        {!loading && filteredData.length > 0 && (
+          <div className="overflow-x-auto rounded-2xl border border-white/10 backdrop-blur-md">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-black/40">
+                  <th className="px-6 py-4 text-left text-gray-300 font-medium">ID</th>
+                  {fields.map((field) => (
+                    <th key={field} className="px-6 py-4 text-left text-gray-300 font-medium">
+                      {editingField === field ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={newFieldName}
+                            onChange={(e) => setNewFieldName(e.target.value)}
+                            className="px-3 py-1 bg-black/30 border border-white/20 rounded-lg text-white"
+                          />
+                          <button
+                            onClick={() => handleEditFieldName(field)}
+                            className="px-3 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-300"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          {field}
+                          <button
+                            onClick={() => setEditingField(field)}
+                            className="text-blue-400 hover:text-blue-300 transition-colors duration-300"
+                          >
+                            <Edit size={16} />
+                          </button>
+                        </div>
+                      )}
+                    </th>
+                  ))}
+                  <th className="px-6 py-4 text-left text-gray-300 font-medium">Last Updated</th>
+                  <th className="px-6 py-4 text-left text-gray-300 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {currentData.map((item) => (
+                  <tr key={item.id} className="group hover:bg-white/5 transition-colors duration-300">
+                    <td className="px-6 py-4 text-blue-400">{item.id}</td>
+                    {fields.map((field) => (
+                      <td key={field} className="px-6 py-4 text-gray-300">{item[field]}</td>
+                    ))}
+                    <td className="px-6 py-4 text-gray-400">{item.LastUpdated}</td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => handleDelete(item.id)}
+                        className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all duration-300 flex items-center gap-2 group"
+                      >
+                        <Trash2 size={16} className="group-hover:rotate-12 transition-transform duration-300" />
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && filteredData.length === 0 && (
+          <div className="text-center py-12 text-gray-400 bg-black/20 rounded-2xl border border-white/10">
+            No data found
+          </div>
+        )}
+
+        {/* Pagination */}
+        <div className="flex justify-between items-center mt-8">
+          <button
+            disabled={page <= 1}
+            onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+            className={`px-6 py-3 rounded-xl flex items-center gap-2 transition-all duration-300 ${
+              page <= 1
+                ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+                : "bg-black/20 text-gray-300 hover:bg-white/10"
+            }`}
+          >
+            <ChevronLeft size={20} /> Previous
+          </button>
+          <div className="px-6 py-3 bg-black/20 rounded-xl text-gray-300">
+            Page {page} of {totalPages}
+          </div>
+          <button
+            disabled={page >= totalPages}
+            onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
+            className={`px-6 py-3 rounded-xl flex items-center gap-2 transition-all duration-300 ${
+              page >= totalPages
+                ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+                : "bg-black/20 text-gray-300 hover:bg-white/10"
+            }`}
+          >
+            Next <ChevronRight size={20} />
+          </button>
+        </div>
       </div>
 
-      <div className="mb-5">
-        <input
-          type="text"
-          placeholder="Search organizations..."
-          className="border text-black rounded-lg w-full p-2"
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-      </div>
-
-      <Popup isOpen={isPopupOpen} onClose={closePopup}>
-        <form onSubmit={handleOrgSubmit} className="mx-auto">
-          <div className="mb-5">
-            <label htmlFor="orgName" className="block mb-2 text-sm font-medium text-black">
-              Organization Name
-            </label>
+      {/* Popups */}
+      <Popup isOpen={isNewTablePopupOpen} onClose={() => setIsNewTablePopupOpen(false)}>
+        <form onSubmit={handleCreateNewTable} className="space-y-6">
+          <div>
+            <label className="block text-gray-300 mb-2">Table Name</label>
             <input
               type="text"
-              id="orgName"
-              placeholder="Enter organization name"
-              className="border rounded-lg block w-full p-2"
+              value={newTableName}
+              onChange={(e) => setNewTableName(e.target.value)}
+              className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
               required
             />
           </div>
-          <div className="mb-5">
-            <label htmlFor="type" className="block mb-2 text-sm font-medium text-black">
-              Type
-            </label>
-            <select id="type" className="border rounded-lg block w-full p-2" required>
-              <option value="" disabled selected>Select type</option>
-              <option value="--None--">--None--</option>
-              <option value="Sandbox">Sandbox</option>
-              <option value="Production">Production</option>
-            </select>
+          <div>
+            <label className="block text-gray-300 mb-2">Table Alias</label>
+            <input
+              type="text"
+              value={newTableAlias}
+              onChange={(e) => setNewTableAlias(e.target.value)}
+              className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              required
+            />
           </div>
-          <div className="mb-5">
-            <label htmlFor="status" className="block mb-2 text-sm font-medium text-black">
-              Status
-            </label>
-            <select id="status" className="border rounded-lg block w-full p-2" required>
-              <option value="" disabled selected>Select status</option>
-              <option value="--None--">--None--</option>
-              <option value="New">New</option>
-              <option value="Authenticated">Authenticated</option>
-              <option value="Auth-Expired">Auth-Expired</option>
-            </select>
+          <div>
+            <label className="block text-gray-300 mb-2">Fields</label>
+            {newTableFields.map((field, index) => (
+              <div key={index} className="flex gap-2 mb-2">
+                <input
+                  type="text"
+                  value={field.name}
+                  onChange={(e) => updateField(index, "name", e.target.value)}
+                  placeholder="Field Name"
+                  className="flex-1 px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  required
+                />
+                <select
+                  value={field.type}
+                  onChange={(e) => updateField(index, "type", e.target.value)}
+                  className="w-1/3 px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                >
+                  <option value="string">String</option>
+                  <option value="number">Number</option>
+                 
+                </select>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addNewField}
+              className="mt-2 px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500 hover:text-white transition-all duration-300"
+            >
+              + Add Field
+            </button>
           </div>
-          <div className="mb-5">
-            <label htmlFor="active" className="block mb-2 text-sm font-medium text-black">
-              Active
-            </label>
-            <input type="checkbox" id="active" className="border rounded-lg block w-4 h-4" />
-          </div>
-          <button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded-lg">
-            Add Organization
+          <button
+            type="submit"
+            className="w-full px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all duration-300 shadow-lg shadow-blue-500/30"
+          >
+            Create Table
           </button>
         </form>
       </Popup>
 
-      <div className="mt-5">
-        <table className="w-full border rounded-xl overflow-hidden">
-          <thead className="bg-gray-800">
-            <tr>
-              <th className="text-left py-3 text-lg px-4 text-white" style={{ width: '10%' }}>
-                #
-              </th>
-              <th className="text-left py-3 text-lg px-4 text-white" style={{ width: '55%' }}>
-                Organization Name
-              </th>
-              <th className="text-left py-3 text-lg px-4 text-white" style={{ width: '20%' }}>
-                Last Updated
-              </th>
-              
-            </tr>
-          </thead>
-          <tbody>
-            {currentData.map((row, index) => (
-              <tr key={row.id} className="text-left text-black odd:bg-gray-100 even:bg-gray-50">
-                <td className="py-3 px-4" style={{ width: '10%' }}>
-                  {(page - 1) * itemsPerPage + index + 1}
-                </td>
-                <td className="py-3 px-4" style={{ width: '55%' }}>
-                  <span className="text-blue-500 cursor-pointer hover:underline" onClick={() => router.push(`/org/${row.id}`)}>
-                    {row.orgName}
-                  </span>
-                </td>
-                <td className="py-3 px-4" style={{ width: '20%' }}>
-                  {new Date(row.LastUpdated).toLocaleString()}
-                </td>
-                
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-5 flex justify-between items-center">
-        <div className="text-black">
-          Showing {currentData.length} of {filteredData.length} items
-        </div>
-        <div>
+      <Popup isOpen={isPopupOpen} onClose={() => setIsPopupOpen(false)}>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {fields.map((field) => (
+            <div key={field}>
+              <label className="block text-gray-300 mb-2">{field}</label>
+              <input
+                type={activeSchema.fields[field].type}
+                name={field}
+                className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                required
+              />
+            </div>
+          ))}
           <button
-            disabled={page === 1}
-            onClick={() => setPage((prev) => prev - 1)}
-            className="bg-blue-500 text-white px-3 py-1 rounded-lg mr-2"
+            type="submit"
+            className="w-full px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all duration-300 shadow-lg shadow-blue-500/30"
           >
-            Previous
+            Add Item
           </button>
-          <button
-            disabled={page === totalPages}
-            onClick={() => setPage((prev) => prev + 1)}
-            className="bg-blue-500 text-white px-3 py-1 rounded-lg"
-          >
-            Next
-          </button>
-        </div>
-      </div>
+        </form>
+      </Popup>
     </main>
   );
 }
