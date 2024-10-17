@@ -8,14 +8,25 @@ import {
   listTables,
   listSchemas,
   registerSchema,
+  updateSchema,
   getSchema,
   updateHead,
+  dropTable,
+  deleteSchema,
   validateItemAgainstSchema,
 } from "@/actions/action";
 import Popup from "@/components/Popup";
 import { useRouter } from "next/navigation";
-import { Edit, Trash2, Plus, Search, Database, ChevronLeft, ChevronRight } from 'lucide-react';
-import { format } from 'date-fns';
+import {
+  Edit,
+  Trash2,
+  Plus,
+  Search,
+  Database,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
+import { format } from "date-fns";
 import { Anybody } from "next/font/google";
 
 interface TableData {
@@ -25,7 +36,7 @@ interface TableData {
 }
 
 type FieldDef = {
-  type: 'number' | 'boolean' | 'string'; // You can add more types as needed
+  type: "number" | "boolean" | "string"; // You can add more types as needed
 };
 
 export default function DynamicPage() {
@@ -43,21 +54,30 @@ export default function DynamicPage() {
   const [error, setError] = useState<string | null>(null);
   const [newTableName, setNewTableName] = useState("");
   const [newTableAlias, setNewTableAlias] = useState("");
-  const [newTableFields, setNewTableFields] = useState<{ name: string, type: string }[]>([]);
+  const [newTableFields, setNewTableFields] = useState<
+    { name: string; type: string }[]
+  >([]);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [newFieldName, setNewFieldName] = useState<string>("");
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [tableToDelete, setTableToDelete] = useState<string | null>(null);
+
+  const [aliasField, setAliasField] = useState<string | null>(null);
+  const [newAliasName, setNewAliasName] = useState<string>("");
   const itemsPerPage = 10;
 
-  const handleCreateNewTable = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateNewTable = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
     event.preventDefault();
     try {
-      const newSchema: { tableName: string, alias: string, fields: any } = {
+      const newSchema: { tableName: string; alias: string; fields: any } = {
         tableName: newTableName,
         alias: newTableAlias,
         fields: {},
       };
 
-      newTableFields.forEach(field => {
+      newTableFields.forEach((field) => {
         newSchema.fields[field.name] = { type: field.type, required: true };
       });
 
@@ -76,7 +96,80 @@ export default function DynamicPage() {
       setNewTableFields([]);
     } catch (err) {
       console.error("Error creating new table:", err);
-      alert(err instanceof Error ? err.message : 'Failed to create new table');
+      alert(err instanceof Error ? err.message : "Failed to create new table");
+    }
+  };
+
+  const DeleteConfirmationPopup = ({
+    isOpen,
+    onClose,
+    onConfirm,
+    tableName,
+  }: {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    tableName: string;
+  }) => {
+    if (!isOpen) return null;
+
+    return (
+      <Popup isOpen={isOpen} onClose={onClose}>
+        <div className="space-y-6">
+          <h3 className="text-xl text-white font-semibold">Delete Table</h3>
+          <p className="text-gray-300">
+            Are you sure you want to delete the table ? This action cannot be
+            undone.
+          </p>
+          <div className="flex gap-4">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-gray-500/20 text-gray-300 rounded-xl hover:bg-gray-500/30 transition-all duration-300"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              className="flex-1 px-4 py-2 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all duration-300"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </Popup>
+    );
+  };
+
+  const handleDeleteTable = async (tableName: string) => {
+    try {
+      await dropTable(tableName);
+      await deleteSchema(tableName);
+
+      // Update the tables list
+      const updatedTables = await listTables();
+      setTables(updatedTables);
+
+      // If the deleted table was active, switch to another table
+      if (activeTab === tableName) {
+        setActiveTab(updatedTables[0] || "");
+      }
+
+      // Close the confirmation popup
+      setTableToDelete(null);
+      setIsDeleteConfirmOpen(false);
+
+      // Clear the schemas and table data if needed
+      const newSchemas = { ...schemas };
+      delete newSchemas[tableName];
+      setSchemas(newSchemas);
+
+      if (activeTab === tableName) {
+        setTableData([]);
+        setFilteredData([]);
+      }
+    } catch (err) {
+      console.error("Error deleting table:", err);
+      alert(err instanceof Error ? err.message : "Failed to delete table");
     }
   };
 
@@ -95,7 +188,7 @@ export default function DynamicPage() {
         window.location.reload();
       } catch (err) {
         console.error("Error renaming field:", err);
-        alert(err instanceof Error ? err.message : 'Failed to rename field');
+        alert(err instanceof Error ? err.message : "Failed to rename field");
       }
     }
   };
@@ -122,7 +215,9 @@ export default function DynamicPage() {
           return [table, schema] as [string, any];
         });
 
-        const schemasData = Object.fromEntries(await Promise.all(schemaPromises));
+        const schemasData = Object.fromEntries(
+          await Promise.all(schemaPromises)
+        );
         setSchemas(schemasData);
 
         if (tablesList.length > 0 && !activeTab) {
@@ -151,7 +246,9 @@ export default function DynamicPage() {
         const processedData = data.map((item: TableData, index: number) => ({
           ...item,
           id: index + 1,
-          LastUpdated: item.LastUpdated ? format(new Date(item.LastUpdated), 'MMM dd, yyyy HH:mm:ss') : ''
+          LastUpdated: item.LastUpdated
+            ? format(new Date(item.LastUpdated), "MMM dd, yyyy HH:mm:ss")
+            : "",
         }));
         setTableData(processedData);
         setFilteredData(processedData);
@@ -193,56 +290,66 @@ export default function DynamicPage() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const newItem: { [key: string]: any } = {};
-  
+
     const schema = schemas[activeTab];
-  
+
     // Type assertion for schema.fields
-    Object.entries(schema.fields as { [key: string]: FieldDef }).forEach(([field, fieldDef]) => {
-      const value = formData.get(field);
-      switch (fieldDef.type) {
-        case 'number':
-          newItem[field] = value ? Number(value) : null;
-          break;
-        case 'boolean':
-          newItem[field] = value === 'true';
-          break;
-        default:
-          newItem[field] = value;
+    Object.entries(schema.fields as { [key: string]: FieldDef }).forEach(
+      ([field, fieldDef]) => {
+        const value = formData.get(field);
+        switch (fieldDef.type) {
+          case "number":
+            newItem[field] = value ? Number(value) : null;
+            break;
+          case "boolean":
+            newItem[field] = value === "true";
+            break;
+          default:
+            newItem[field] = value;
+        }
       }
-    });
+    );
 
     try {
       await validateItemAgainstSchema(activeTab, newItem);
       await addItem(activeTab, newItem);
       const updatedData = await getItems(activeTab);
-      const processedData = updatedData.map((item: TableData, index: number) => ({
-        ...item,
-        id: index + 1,
-        LastUpdated: item.LastUpdated ? format(new Date(item.LastUpdated), 'MMM dd, yyyy HH:mm:ss') : ''
-      }));
+      const processedData = updatedData.map(
+        (item: TableData, index: number) => ({
+          ...item,
+          id: index + 1,
+          LastUpdated: item.LastUpdated
+            ? format(new Date(item.LastUpdated), "MMM dd, yyyy HH:mm:ss")
+            : "",
+        })
+      );
       setTableData(processedData);
       setIsPopupOpen(false);
     } catch (err) {
       console.error(`Error submitting ${activeTab}:`, err);
-      alert(err instanceof Error ? err.message : 'Failed to add item');
+      alert(err instanceof Error ? err.message : "Failed to add item");
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this item?')) return;
+    if (!confirm("Are you sure you want to delete this item?")) return;
 
     try {
       await deleteItem(activeTab, id);
       const updatedData = await getItems(activeTab);
-      const processedData = updatedData.map((item: TableData, index: number) => ({
-        ...item,
-        id: index + 1,
-        LastUpdated: item.LastUpdated ? format(new Date(item.LastUpdated), 'MMM dd, yyyy HH:mm:ss') : ''
-      }));
+      const processedData = updatedData.map(
+        (item: TableData, index: number) => ({
+          ...item,
+          id: index + 1,
+          LastUpdated: item.LastUpdated
+            ? format(new Date(item.LastUpdated), "MMM dd, yyyy HH:mm:ss")
+            : "",
+        })
+      );
       setTableData(processedData);
     } catch (err) {
       console.error(`Error deleting ${activeTab}:`, err);
-      alert('Failed to delete item');
+      alert("Failed to delete item");
     }
   };
 
@@ -256,7 +363,7 @@ export default function DynamicPage() {
   const fields = activeSchema ? Object.keys(activeSchema.fields) : [];
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 w-full p-8">
+    <main className="min-h-screen bg-gradient-to-br from-gray-400 via-gray-700 to-gray-900 w-full p-8">
       {/* Glass Container */}
       <div className="backdrop-blur-md bg-black/30 rounded-3xl border border-white/10 shadow-2xl p-8 max-w-[95%] mx-auto mt-10">
         {/* Header Section */}
@@ -265,18 +372,19 @@ export default function DynamicPage() {
           <div className="flex space-x-2 overflow-x-auto scrollbar-hide pb-2 w-full md:w-auto">
             <div className="flex gap-3 p-1 bg-black/20 rounded-2xl backdrop-blur-sm">
               {tables.map((table) => (
-                <button
-                  key={table}
-                  onClick={() => setActiveTab(table)}
-                  className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
-                    activeTab === table
-                      ? "bg-blue-500 text-white shadow-lg shadow-blue-500/50 scale-105 transform"
-                      : "text-gray-300 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  <Database className="w-4 h-4 inline-block mr-2" />
-                  {table}
-                </button>
+                <div key={table} className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveTab(table)}
+                    className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
+                      activeTab === table
+                        ? "bg-blue-500 text-white shadow-lg shadow-blue-500/50 scale-105 transform"
+                        : "text-gray-300 hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    <Database className="w-4 h-4 inline-block mr-2" />
+                    {table}
+                  </button>
+                </div>
               ))}
               <button
                 onClick={() => setIsNewTablePopupOpen(true)}
@@ -287,7 +395,19 @@ export default function DynamicPage() {
             </div>
           </div>
 
-          {/* Add New Item Button */}
+<div className="flex">
+<button
+            onClick={() => {
+              setTableToDelete(activeTab);
+              setIsDeleteConfirmOpen(true);
+            }}
+            className="p-2 hover:bg-red-500/20 rounded-full transition-colors duration-300 group"
+          >
+            <Trash2
+              size={40}
+              className="text-red-400 group-hover:text-red-300 transition-colors duration-300"
+            />
+          </button>
           <button
             onClick={() => setIsPopupOpen(true)}
             className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-all duration-300 shadow-lg shadow-blue-500/30 flex items-center group"
@@ -295,7 +415,62 @@ export default function DynamicPage() {
             <Plus className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform duration-300" />
             Add New Item
           </button>
+</div>
+
+          
         </div>
+        {schemas[activeTab] ? (
+          <div className="flex items-center gap-4 text-white mb-10">
+            {aliasField === activeTab ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newAliasName}
+                  onChange={(e) => setNewAliasName(e.target.value)}
+                  className="text-4xl px-4 py-2 bg-black/20 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  placeholder="Enter new alias"
+                />
+                <button
+                  onClick={async () => {
+                    try {
+                      await updateSchema(activeTab, newAliasName);
+                      const schema = await getSchema(activeTab);
+                      setSchemas({ ...schemas, [activeTab]: schema });
+                      setAliasField(null);
+                      setNewAliasName("");
+                    } catch (err) {
+                      console.error("Error updating alias:", err);
+                      alert(
+                        err instanceof Error
+                          ? err.message
+                          : "Failed to update alias"
+                      );
+                    }
+                  }}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all duration-300"
+                >
+                  Save
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-6xl">{schemas[activeTab].alias}</span>
+                <button
+                  onClick={() => {
+                    setAliasField(activeTab);
+                    setNewAliasName(schemas[activeTab].alias);
+                  }}
+                  className="p-2 hover:bg-white/10 rounded-full transition-colors duration-300"
+                >
+                  <Edit
+                    size={24}
+                    className="text-blue-400 hover:text-blue-300"
+                  />
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {/* Search Bar */}
         <div className="relative mb-8">
@@ -306,7 +481,10 @@ export default function DynamicPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full px-6 py-4 bg-black/20 border border-white/10 rounded-2xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-300"
           />
-          <Search className="absolute right-6 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+          <Search
+            className="absolute right-6 top-1/2 transform -translate-y-1/2 text-gray-400"
+            size={20}
+          />
         </div>
 
         {/* Loading States */}
@@ -322,9 +500,14 @@ export default function DynamicPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-black/40">
-                  <th className="px-6 py-4 text-left text-gray-300 font-medium">ID</th>
+                  <th className="px-6 py-4 text-left text-gray-300 font-medium">
+                    ID
+                  </th>
                   {fields.map((field) => (
-                    <th key={field} className="px-6 py-4 text-left text-gray-300 font-medium">
+                    <th
+                      key={field}
+                      className="px-6 py-4 text-left text-gray-300 font-medium"
+                    >
                       {editingField === field ? (
                         <div className="flex items-center gap-2">
                           <input
@@ -353,24 +536,38 @@ export default function DynamicPage() {
                       )}
                     </th>
                   ))}
-                  <th className="px-6 py-4 text-left text-gray-300 font-medium">Last Updated</th>
-                  <th className="px-6 py-4 text-left text-gray-300 font-medium">Actions</th>
+                  <th className="px-6 py-4 text-left text-gray-300 font-medium">
+                    Last Updated
+                  </th>
+                  <th className="px-6 py-4 text-left text-gray-300 font-medium">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {currentData.map((item) => (
-                  <tr key={item.id} className="group hover:bg-white/5 transition-colors duration-300">
+                  <tr
+                    key={item.id}
+                    className="group hover:bg-white/5 transition-colors duration-300"
+                  >
                     <td className="px-6 py-4 text-blue-400">{item.id}</td>
                     {fields.map((field) => (
-                      <td key={field} className="px-6 py-4 text-gray-300">{item[field]}</td>
+                      <td key={field} className="px-6 py-4 text-gray-300">
+                        {item[field]}
+                      </td>
                     ))}
-                    <td className="px-6 py-4 text-gray-400">{item.LastUpdated}</td>
+                    <td className="px-6 py-4 text-gray-400">
+                      {item.LastUpdated}
+                    </td>
                     <td className="px-6 py-4">
                       <button
                         onClick={() => handleDelete(item.id)}
                         className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all duration-300 flex items-center gap-2 group"
                       >
-                        <Trash2 size={16} className="group-hover:rotate-12 transition-transform duration-300" />
+                        <Trash2
+                          size={16}
+                          className="group-hover:rotate-12 transition-transform duration-300"
+                        />
                         Delete
                       </button>
                     </td>
@@ -419,7 +616,10 @@ export default function DynamicPage() {
       </div>
 
       {/* Popups */}
-      <Popup isOpen={isNewTablePopupOpen} onClose={() => setIsNewTablePopupOpen(false)}>
+      <Popup
+        isOpen={isNewTablePopupOpen}
+        onClose={() => setIsNewTablePopupOpen(false)}
+      >
         <form onSubmit={handleCreateNewTable} className="space-y-6">
           <div>
             <label className="block text-gray-300 mb-2">Table Name</label>
@@ -460,7 +660,6 @@ export default function DynamicPage() {
                 >
                   <option value="string">String</option>
                   <option value="number">Number</option>
-                 
                 </select>
               </div>
             ))}
@@ -502,6 +701,16 @@ export default function DynamicPage() {
           </button>
         </form>
       </Popup>
+      {/* Delete Confirmation Popup */}
+      <DeleteConfirmationPopup
+        isOpen={isDeleteConfirmOpen}
+        onClose={() => {
+          setIsDeleteConfirmOpen(false);
+          setTableToDelete(null);
+        }}
+        onConfirm={() => tableToDelete && handleDeleteTable(tableToDelete)}
+        tableName={tableToDelete || ""}
+      />
     </main>
   );
 }

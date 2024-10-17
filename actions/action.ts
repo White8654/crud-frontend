@@ -69,9 +69,9 @@ export const listSchemas = async (): Promise<TableSchema[]> => {
 
 export const updateSchema = async (
   tableName: string,
-  updates: Partial<TableSchema>
+  newAlias: string
 ): Promise<void> => {
-  await apiRequest(`/schema/${tableName}`, 'PUT', updates);
+  await apiRequest(`/schema/${tableName}`, 'PUT', { alias: newAlias });
 };
 
 export const deleteSchema = async (tableName: string): Promise<void> => {
