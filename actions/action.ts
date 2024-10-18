@@ -21,6 +21,7 @@ export interface TableRenameRequest {
 }
 
 // actions.ts
+//const apiUrl = "http://localhost:3000"; 
 const apiUrl = "https://crud-backend-ten-kappa.vercel.app"; 
 
 // Generic API request handler
@@ -129,6 +130,7 @@ export const updateItem = async (
   id: number,
   updates: Record<string, any>
 ): Promise<void> => {
+  
   await apiRequest(`/item/${tableName}/${id}`, 'PUT', updates);
 };
 

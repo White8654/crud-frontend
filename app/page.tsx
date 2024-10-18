@@ -66,6 +66,8 @@ export default function DynamicPage() {
   const [newAliasName, setNewAliasName] = useState<string>("");
   const itemsPerPage = 10;
 
+  const router = useRouter();
+
   const handleCreateNewTable = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
@@ -139,6 +141,8 @@ export default function DynamicPage() {
       </Popup>
     );
   };
+
+  const handleEdit = (itemId: number) => {};
 
   const handleDeleteTable = async (tableName: string) => {
     try {
@@ -245,7 +249,7 @@ export default function DynamicPage() {
         const data = await getItems(activeTab);
         const processedData = data.map((item: TableData, index: number) => ({
           ...item,
-          id: index + 1,
+          Id: index + 1,
           LastUpdated: item.LastUpdated
             ? format(new Date(item.LastUpdated), "MMM dd, yyyy HH:mm:ss")
             : "",
@@ -317,7 +321,7 @@ export default function DynamicPage() {
       const processedData = updatedData.map(
         (item: TableData, index: number) => ({
           ...item,
-          id: index + 1,
+          Id: index + 1,
           LastUpdated: item.LastUpdated
             ? format(new Date(item.LastUpdated), "MMM dd, yyyy HH:mm:ss")
             : "",
@@ -331,16 +335,16 @@ export default function DynamicPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (Id: number) => {
     if (!confirm("Are you sure you want to delete this item?")) return;
 
     try {
-      await deleteItem(activeTab, id);
+      await deleteItem(activeTab, Id);
       const updatedData = await getItems(activeTab);
       const processedData = updatedData.map(
         (item: TableData, index: number) => ({
           ...item,
-          id: index + 1,
+          Id: index + 1,
           LastUpdated: item.LastUpdated
             ? format(new Date(item.LastUpdated), "MMM dd, yyyy HH:mm:ss")
             : "",
@@ -395,29 +399,27 @@ export default function DynamicPage() {
             </div>
           </div>
 
-<div className="flex">
-<button
-            onClick={() => {
-              setTableToDelete(activeTab);
-              setIsDeleteConfirmOpen(true);
-            }}
-            className="p-2 hover:bg-red-500/20 rounded-full transition-colors duration-300 group"
-          >
-            <Trash2
-              size={40}
-              className="text-red-400 group-hover:text-red-300 transition-colors duration-300"
-            />
-          </button>
-          <button
-            onClick={() => setIsPopupOpen(true)}
-            className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-all duration-300 shadow-lg shadow-blue-500/30 flex items-center group"
-          >
-            <Plus className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform duration-300" />
-            Add New Item
-          </button>
-</div>
-
-          
+          <div className="flex">
+            <button
+              onClick={() => {
+                setTableToDelete(activeTab);
+                setIsDeleteConfirmOpen(true);
+              }}
+              className="p-2 hover:bg-red-500/20 rounded-full transition-colors duration-300 group"
+            >
+              <Trash2
+                size={40}
+                className="text-red-400 group-hover:text-red-300 transition-colors duration-300"
+              />
+            </button>
+            <button
+              onClick={() => setIsPopupOpen(true)}
+              className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-all duration-300 shadow-lg shadow-blue-500/30 flex items-center group"
+            >
+              <Plus className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform duration-300" />
+              Add New Item
+            </button>
+          </div>
         </div>
         {schemas[activeTab] ? (
           <div className="flex items-center gap-4 text-white mb-10">
@@ -539,18 +541,16 @@ export default function DynamicPage() {
                   <th className="px-6 py-4 text-left text-gray-300 font-medium">
                     Last Updated
                   </th>
-                  <th className="px-6 py-4 text-left text-gray-300 font-medium">
-                    Actions
-                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {currentData.map((item) => (
                   <tr
-                    key={item.id}
-                    className="group hover:bg-white/5 transition-colors duration-300"
+                    key={item.Id}
+                    className="group hover:bg-white/5 transition-colors duration-300 cursor-pointer"
+                    onClick={() => router.push(`/${activeTab}/${item.id}`)}
                   >
-                    <td className="px-6 py-4 text-blue-400">{item.id}</td>
+                    <td className="px-6 py-4 text-blue-400">{item.Id}</td>
                     {fields.map((field) => (
                       <td key={field} className="px-6 py-4 text-gray-300">
                         {item[field]}
@@ -558,18 +558,6 @@ export default function DynamicPage() {
                     ))}
                     <td className="px-6 py-4 text-gray-400">
                       {item.LastUpdated}
-                    </td>
-                    <td className="px-6 py-4">
-                      <button
-                        onClick={() => handleDelete(item.id)}
-                        className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all duration-300 flex items-center gap-2 group"
-                      >
-                        <Trash2
-                          size={16}
-                          className="group-hover:rotate-12 transition-transform duration-300"
-                        />
-                        Delete
-                      </button>
                     </td>
                   </tr>
                 ))}
